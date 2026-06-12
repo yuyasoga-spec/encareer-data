@@ -138,7 +138,7 @@ td .txt{max-width:340px;white-space:pre-wrap}
 </head>
 <body>
 <div class="topbar">
-  <div class="brand"><span class="dot"></span>エンキャリ企業情報 <span style="font-size:10px;color:var(--muted);font-weight:600">v2026.06.12-1734</span></div>
+  <div class="brand"><span class="dot"></span>エンキャリ企業情報 <span style="font-size:10px;color:var(--muted);font-weight:600">v2026.06.12-1956</span></div>
   <div class="search">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
     <input id="globalSearch" placeholder="全データを横断検索（会社名・職種・キーワード…）" autocomplete="off">
@@ -525,9 +525,10 @@ let AICFG=null; try{AICFG=JSON.parse(localStorage.getItem(AIKEY)||'null');}catch
 let aiState={result:null,searching:false,ocrImages:[],ocrItems:null,ocrBusy:false};
 
 function saveAISettings(){
-  const url=document.getElementById('aiUrl').value.trim();
+  let url=document.getElementById('aiUrl').value.trim();
   const key=document.getElementById('aiKeyInput').value.trim();
   if(!url){localStorage.removeItem(AIKEY);AICFG=null;toast('AI連携を解除しました');closeModal();render();return;}
+  if(!/^https?:\/\//i.test(url))url='https://'+url; // https:// の付け忘れを自動補完
   AICFG={url,key};localStorage.setItem(AIKEY,JSON.stringify(AICFG));
   toast('AI設定を保存しました');closeModal();
   if(current==='aiTools')render();
@@ -834,6 +835,10 @@ function openSyncSettings(){
     <div class="form-field"><label>WorkerのURL</label><input id="aiUrl" value="${esc((AICFG&&AICFG.url)||'')}" placeholder="https://encareer-ai.あなたの名前.workers.dev"></div>
     <div class="form-field"><label>アプリキー（Worker側のAPP_KEYと同じ合言葉）</label><input id="aiKeyInput" type="password" value="${esc((AICFG&&AICFG.key)||'')}" placeholder="設定していない場合は空欄でOK"></div>
     <div style="text-align:right"><button class="btn primary" onclick="saveAISettings()">AI設定を保存</button></div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:20px 0">
+    <div class="section-title" style="font-size:14px">🔗 招待リンク（メンバー招待をラクに）</div>
+    <div class="count" style="margin-bottom:10px;line-height:1.8">共通設定（保存先リポジトリ・WorkerのURL・合言葉）が入ったURLを作ります。友達はリンクを開いて「取り込む」を押すだけで設定完了。<br>各自で入れるのは <b>👤名前</b> と、書き込みする人だけ <b>GitHubトークン</b> です（トークンはリンクに含まれません）。</div>
+    <div style="text-align:right"><button class="btn" onclick="copyInviteLink()">🔗 招待リンクをコピー</button></div>
    </div>
    <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">閉じる</button></div>`);
 }
@@ -877,6 +882,48 @@ async function initSync(){
     }
     setSync(dirty?'dirty':'local');
   }
+}
+
+/* ---------- 招待リンク ---------- */
+function b64url(s){return b64encodeUtf8(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+function b64urlDec(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return b64decodeUtf8(s);}
+function copyInviteLink(){
+  const cfg={};
+  if(SYNC&&SYNC.owner){cfg.o=SYNC.owner;cfg.r=SYNC.repo;cfg.b=SYNC.branch||'main';}
+  if(AICFG&&AICFG.url){cfg.au=AICFG.url;cfg.ak=AICFG.key||'';}
+  if(!cfg.o&&!cfg.au){toast('先にGitHub連携かAI連携を設定（保存）してください');return;}
+  if(location.protocol==='file:'){toast('⚠ ファイルから開いているため、このリンクは他の人のPCでは動きません。公開サイト側で発行してください');}
+  const link=location.origin+location.pathname+'#invite='+b64url(JSON.stringify(cfg));
+  copyText(link,'招待リンクをコピーしました。LINEなどで友達に送ってください');
+}
+let _inviteCfg=null;
+function applyInviteFromHash(){
+  const m=location.hash.match(/invite=([A-Za-z0-9_\-]+)/);
+  if(!m)return;
+  try{_inviteCfg=JSON.parse(b64urlDec(m[1]));}catch(e){return;}
+  history.replaceState(null,'',location.pathname+location.search);
+  const items=[];
+  if(_inviteCfg.o)items.push('☁ 共有保存先: <b>'+esc(_inviteCfg.o+'/'+_inviteCfg.r)+'</b>');
+  if(_inviteCfg.au)items.push('🤖 AI連携: <b>'+esc(_inviteCfg.au)+'</b>'+(_inviteCfg.ak?'（合言葉つき）':''));
+  if(!items.length){_inviteCfg=null;return;}
+  showModal(`<div class="mhead"><h2>🔗 招待リンクを開きました</h2><button class="closebtn" onclick="closeModal()">✕</button></div>
+   <div class="mbody">
+    <div style="font-size:14px;line-height:2">次の共通設定を取り込みます：<br>${items.join('<br>')}</div>
+    <div class="count" style="margin-top:12px">取り込み後にやること：<br>① 右上の「👤」で自分の名前を設定<br>② データを追加・編集したい人は「⚙ 共有設定」でGitHubトークンを設定（閲覧だけなら不要）</div>
+   </div>
+   <div class="modal-actions"><button class="btn primary" onclick="applyInvite()">設定を取り込む</button><button class="btn ghost" onclick="_inviteCfg=null;closeModal()">キャンセル</button></div>`);
+}
+function applyInvite(){
+  const cfg=_inviteCfg;if(!cfg)return;
+  if(cfg.au){AICFG={url:cfg.au,key:cfg.ak||''};localStorage.setItem(AIKEY,JSON.stringify(AICFG));}
+  if(cfg.o){
+    const tok=(SYNC&&SYNC.token)||'';
+    SYNC={owner:cfg.o,repo:cfg.r,branch:cfg.b||'main',token:tok,path:'data.json'};
+    localStorage.setItem(SKEY,JSON.stringify(SYNC));
+  }
+  _inviteCfg=null;closeModal();updateSyncBadge();render();
+  toast('✅ 設定を取り込みました！');
+  if(!localStorage.getItem(UKEY))setTimeout(changeUser,400);
 }
 
 /* ---------- user (追加者の記録) ---------- */
@@ -926,6 +973,7 @@ let st;document.getElementById('globalSearch').addEventListener('input',()=>{cle
 updateUserBtn();
 render();
 initSync();
+applyInviteFromHash();
 </script>
 </body>
 </html>
